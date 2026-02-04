@@ -34,11 +34,48 @@ The agent will:
 
 ---
 
+## Create Precab Skill (VS Code)
+
+Use the `precab` skill when the user runs the Precab command in VS Code or provides a ticket key.
+
+- **Normalize ticket**: Uppercase and trim (e.g., `box-5333` -> `BOX-5333`).
+- **Required tools**: Always use Atlassian MCP for Jira/Confluence; use GitHub tools when PRs are linked.
+- **Template priority**: Always fetch existing Precab release pages on Confluence first (prefer the most recent pages); use locally created markdown only as a fallback and still mirror Confluence structure when available.
+- **Output**: Generate `precab-release-{TICKET}.md` in the workspace root unless the user specifies a path.
+- **Response**: Confirm file path created, list placeholders left, and surface missing data to fill manually.
+- **Graceful failure**: If Jira/Confluence/PR fetch fails, stop and report the exact failed tool call and next action instead of producing an incomplete page.
+
+### Minimal Interaction Flow
+1) Read ticket via MCP (with comments). 2) Fetch PRs (if linked). 3) **Fetch multiple recent Confluence CAB release pages** (3-5 pages minimum). 4) **Analyze template structure** - identify sections, formatting, level of detail. 5) **Match template exactly** - only include sections present in templates. 6) Synthesize content to match template style/length. 7) Save markdown file. 8) Reply with key highlights, file path, and open placeholders.
+
+### Pre-flight Checklist (before writing file)
+- Cloud ID resolved via MCP resources API.
+- Jira description and **all comments** retrieved.
+- **At least 3-5 recent Confluence CAB release pages fetched** - analyze structure, sections, and detail level.
+- **GitHub PR sourcing attempted** using source order: (1) Jira dev metadata (`customfield_10000`), (2) Jira comments for PR links.
+- Assignee captured for Release Contact.
+- **Scanned Jira comments for "Important:" prefixes** (case-insensitive) - if found, extract and prepare to surface.
+
+### Post-write Checklist (before responding)
+- **Sections match existing CAB templates exactly** - no extra sections added unless present in majority of templates.
+- **Content length matches template style** - brief where templates are brief, detailed only where templates are detailed.
+- **Only add sections not in template after asking user** - never assume extra sections are needed.
+- Placeholders explicitly marked `*[PLACEHOLDER - ...]*` for missing data.
+- Include Jira URL in Tickets section; include PR URL(s) if present.
+- Call out any data sources that failed (Jira/Confluence/PR) so the user can retry.
+
+---
+
 ## Capabilities
 
 ### Jira Integration
 - Fetch tickets by issue key (e.g., BOX-5333)
 - **ALWAYS read and analyze Jira comments** - they contain critical context, deployment notes, and clarifications
+- **Scan for "Important:" comments** (case-insensitive): Look for comments prefixed with "Important:", "IMPORTANT:", "⚠️ Important:", etc.
+  - Extract and interpret these notes
+  - Summarize in business-first language
+  - Surface in release page under appropriate section: Business Context, Technical Notes, or standalone "To Note" section
+  - If multiple "Important:" comments exist, consolidate into concise summary
 - Extract GitHub PR links from ticket metadata or comments
 - Do not include linked issues. If absolutely necessary, ask user first if referencing linked issues is to be done with a detailed report
 - **Tool Selection:** 
@@ -47,115 +84,105 @@ The agent will:
 - **Never** use `jira issue list` commands - only fetch specific tickets using MCP tools
 
 **Content Guidelines:**
-- **Business Context Only** - Focus on WHAT and WHY, not HOW
-- **Be Brief and Concise** - Keep Background to 2-3 sentences maximum; Summary of Changes to 3-5 bullet points
-- **No Technical Implementation Details** - Avoid code-level specifics, architecture details, or implementation approaches unless explicitly business-critical
-- **No Acceptance Criteria** - These are development artifacts, not release documentation
-- **Synthesize, Don't Copy-Paste** - Transform Jira description into clear business context
-- **Quality Metrics**: Keep high-level, avoid detailed breakdowns - just state testing status and key validation points
-- **Include if Present:** Technical Notes (operational impact), Test Automation status, Performance metrics
-- **Use PR for Summary** - If GitHub PR is linked, extract the PR description/changes for "Summary of Changes" section 
+- **CRITICAL: Match existing CAB release template structure exactly** - Fetch 3-5 recent Confluence CAB release pages and use their structure as authoritative template
+- **Only include sections present in majority of fetched templates** - Do not add sections unless explicitly asked by user
+- **Match template detail level** - If templates are brief, be brief; if detailed, be detailed
+- **Never add extra sections** without user approval (e.g., don't add "Health Checks", "Appendices", "Supporting Evidence" unless in templates)
+- **Synthesize Jira content** to fit template sections - Don't copy-paste, interpret and summarize appropriately
+- **Comments Section**: ONLY include comments with "Important:" prefix (case-insensitive); skip if none exist
+- **Use PR for Summary** - If GitHub PR is linked, extract PR description for summary section 
 
 ### Confluence Integration
 - **ALWAYS prioritize online Confluence pages** - Fetch from Confluence first, use local files only if Confluence is unavailable
+- **Template priority order**: Most recent Confluence pages > Older Confluence pages > Local markdown files (mirror Confluence structure when using local fallback)
 - Parent page ID for Precab releases: `https://eroad.atlassian.net/wiki/spaces/ENG/folder/3590291799`
 - **Tool Selection:**
   - **ALWAYS use Atlassian MCP server tools** (`mcp_my-mcp-server_search`, `mcp_my-mcp-server_getConfluencePage`)
   - Search for precab release pages using `mcp_my-mcp-server_search` with query "precab release page"
   - Fetch specific pages using `mcp_my-mcp-server_getConfluencePage` with markdown format
+  - Prefer most recent pages as templates (check created/updated dates)
   - Only use local precab release markdown files as last resort
 - Extract structure, sections, and formatting patterns from templates and apply to the release page to be created
 - Compare multiple recent release pages to understand current standards
 
 ### Release Page Generation
+- **CRITICAL: Match existing CAB release template structure exactly**
+- Fetch 3-5 recent Confluence CAB release pages first
+- Analyze their structure: sections, ordering, formatting, level of detail
+- **Only include sections present in majority of templates**
+- **Never add extra sections** without asking user first
 - Create markdown files compatible with Confluence
-- Follow established template structure from existing releases
-- **Summary of Changes Section:**
+- **Summary Section:**
   - **PRIMARY SOURCE:** Use GitHub PR description if PR is linked in Jira
-  - Extract PR details from Jira metadata (`customfield_10000` or similar)
-  - Focus on business impact and functional changes
-  - Avoid technical implementation details
-- **GitHub PR Analysis:**
-  - **ALWAYS analyze linked GitHub PRs** for test files and quality metrics
-  - Use GitHub MCP tools to fetch PR details, file changes, and commits
-  - Look for test files (e.g., `*Test.java`, `*.spec.ts`, `*.test.js`, `test_*.py`)
-  - Extract test coverage information from PR file changes
-  - Check for gate PRs (deployment/infrastructure changes) linked to the ticket
-  - Include test file references in Quality Metrics section if found
-  - Document both application PRs and gate PRs if both exist
-- **Content Synthesis Rules:**
-  - Analyze and understand the Jira ticket problem/context
-  - Rewrite in clear, business-focused language
-  - Never copy-paste raw Jira descriptions
-  - Transform technical details into business outcomes
-- Use placeholders for missing information (never invents data)
+  - Extract PR details from Jira metadata (`customfield_10000`)
+  - Match template style and length
+- Use placeholders for missing information (never invent data)
 - Jira assignee always put as Release Contact in release page
 
 ---
 
 ## Release Page Template Structure
 
-1. Every Precab release page includes sections which follow existing confluence release pages.
-2. Do not hesitate to break this format if you deem it necessary. 
-3. Jira assignee always put as Release Contact in release page
-4. Use MyEroad Portal as default value for Systems Impacted field
-   1. Use the myeroad microservice or legacy service mentioned in the JIRA ticket or comments if exists
-5. Add performance testing if mentioned in JIRA comments, or JIRA metadata
+**CRITICAL: Do not use this as fixed structure. This is illustrative only.**
 
-<!-- 1. **Title**: `Precab Release – {Feature Name} – {TICKET}`
-2. **Background**: Context and problem statement
-3. **Summary of Changes**: Key changes and business logic
-4. **Environments**: Target systems (e.g., MyEROAD NA, MyEROAD AU/NZ)
-5. **Release Details**: Product, type, contact, date, risk level, systems impacted
-6. **Release Steps**: Deployment procedure
-7. **Rollback Plan**: Recovery steps if issues occur
-8. **Tickets**: Main ticket(s) and related/linked tickets
-9. **Deployable Files**: Artifacts being deployed
-10. **Feature Toggle**: Configuration details if applicable
-11. **Quality Metrics**: Testing coverage and validation -->
+**Instructions:**
+1. **Fetch 3-5 recent Confluence CAB release pages first**
+2. **Analyze their structure** - sections, ordering, formatting, detail level
+3. **Use those templates as authoritative structure** - not this list
+4. **Only include sections present in majority of templates**
+5. **Match template style and length** - brief where they're brief, detailed where they're detailed
+6. **Never add sections not in templates** without asking user first
+
+**Example sections often found in CAB release templates** (actual structure may vary):
+- Title
+- Background  
+- Summary (or Summary of Changes)
+- Environments
+- Release Details
+- Release Steps
+- Rollback Plan
+- Tickets
+- Quality Metrics
+- Comments (only if "Important:" comments exist)
+
+**Key Rules:**
+- **Let fetched templates dictate structure** - don't impose predefined sections
+- Match detail level in templates (brief vs detailed)
+- Ask user before adding sections not in templates
+- Use placeholders for missing operational data
 
 ---
 
 ## Content Population
 
+**CRITICAL: Content must match template structure and detail level from fetched CAB release pages**
+
 ### Automatically Populated from Jira
-- **Title**: From ticket Summary field with a better and brief summarization
+- **Title**: From ticket Summary field - synthesize briefly
 - **Background**: 
-  - **Keep to 2-3 sentences maximum**
-  - Analyze Jira description AND comments together
-  - Synthesize the business problem and context (not the solution)
-  - Focus on WHY this change is needed - be brief and comprehensive
-  - Remove technical jargon and development-specific language
-- **Summary of Changes**:
-  - **Keep to 3-5 bullet points maximum**
+  - Analyze Jira description AND comments
+  - Synthesize the problem/context
+  - **Match template length** (check fetched templates for typical length)
+- **Summary**:
   - **FIRST: Check for linked GitHub PR** - Use PR description as primary source
   - Extract from Jira metadata fields or comments with PR links
-  - If no PR: Synthesize from Jira description focusing on business outcomes
-  - Describe WHAT changed from a user/business perspective (not HOW it was implemented)
-  - Avoid: Code structure, implementation approaches, technical architecture, excessive detail
-  - Each bullet should be one line, high-level functional change only
-- **Quality Metrics**:
-  - **Keep high-level** - just state testing status and type (unit, integration, manual)
-  - Avoid detailed breakdowns or listing specific test scenarios
-  - 2-3 sentences maximum
+  - If no PR: Synthesize from Jira description
+  - **Match template style and length** (check fetched templates)
 - **Status, Assignee, Priority**: From ticket metadata
-- **Comments Analysis**: 
-  - Read ALL comments for deployment notes, clarifications, and additional context
-  - Extract operational notes (deployment timings, special instructions)
-  - Identify any post-deployment considerations
+- **Comments**: 
+  - **ONLY include comments with "Important:" prefix** (case-insensitive)
+  - Skip if no "Important:" comments exist
 
 ### Requires Placeholders
-The following sections need manual input and are marked with placeholders:
+The following typically need manual input (if sections exist in template):
 - Deployable files/artifacts
-- Feature toggle details (if mentioned in JIRA ticket)
-- Quality metrics and test links
-- Performance testing results if JIRA ticket includes comments about performance
+- Feature toggle details (if mentioned in template)
+- Specific release steps
+- Performance testing results (if template includes)
 
 ### Formatting Standards
-- Use en dash (–) not hyphen (-) in titles
-- Risk levels: Low, Medium, High
-- Always include Jira links in ticket tables
-- Mark uncertain information with `*[PLACEHOLDER - Add X]*`
+- Match formatting from fetched templates
+- Use placeholders for unknown information: `*[PLACEHOLDER - Add X]*`
 
 ---
 
@@ -185,14 +212,12 @@ User: Show me linked tickets for BOX-4687
 - ✅ **Never use** `jira issue list` commands - only fetch specific tickets
 - ✅ **Always base outputs** strictly on Jira, Confluence, and GitHub PR data
 - ✅ **Preserve manual edits** when updating existing files
-- ✅ **CRITICAL: Synthesize, Never Copy-Paste** 
-  - Read and understand the Jira ticket problem deeply
-  - Rewrite in clear business language
-  - Focus on outcomes, not implementation
-  - Ask yourself: "Would a non-technical stakeholder understand this?"
-- ✅ **Template Priority**: Online Confluence pages > Local markdown files
-- ✅ **Always Check Comments**: Read Jira comments for critical context
-- ✅ **Use PR for Changes**: GitHub PR description is the authoritative source for "Summary of Changes"
+- ✅ **Template Priority**: **ALWAYS fetch 3-5 recent Confluence CAB release pages** - use their structure as authoritative template
+- ✅ **Match Template Exactly**: Only include sections present in majority of fetched templates; never add extra sections without asking user
+- ✅ **Match Detail Level**: Be brief where templates are brief, detailed where templates are detailed
+- ✅ **Always Check Comments**: Read Jira comments for "Important:" prefixed notes only
+- ✅ **Use PR for Summary**: GitHub PR description is primary source for summary section
+- ✅ **Ask Before Adding**: Never add sections not in templates without user approval
 
 ---
 
@@ -224,9 +249,16 @@ User: Show me linked tickets for BOX-4687
 **GitHub Tools:**
 - `github_repo` - Search GitHub repositories for code and PR information
 - Use to fetch PR details, file changes, and test coverage
-- Look for PRs linked in Jira ticket metadata or comments
+- **PR Search Strategy**:
+  1. First: Check Jira metadata (`customfield_10000`) for PR links
+  2. Second: Search Jira comments for PR URLs
+  3. Third: Use GitHub MCP to search by ticket key (e.g., "BOX-5474") across all accessible repos
+- **Gate PR Search**: Search gate/concourse repositories for existing open gate PR using ticket key
+  - If open gate PR exists: Include link and status in Release Steps section
+  - If no open gate PR: Use placeholder `*[PLACEHOLDER - Gate PR to be created]*`
 - Analyze both application PRs and gate PRs (infrastructure/deployment)
 - Extract test file names and locations for Quality Metrics
+- **If no PRs found after all searches**: Document explicitly in release page
 
 ---
 
@@ -247,48 +279,34 @@ When creating a precab release page, follow this sequence:
 
 2. **Fetch Jira Ticket** (including comments)
    - Use `mcp_my-mcp-server_getJiraIssue` with cloud ID and issue key
-   - Retrieve full ticket: description, comments, metadata, custom fields, linked issues
+   - Retrieve full ticket: description, comments, metadata
 
 3. **Extract GitHub PR Link** (from Jira metadata or comments)
    - Check `customfield_10000` for development information
    - Search comments for GitHub PR URLs
    - Extract PR descriptions if available
 
-4. **Analyze GitHub Pull Requests** (using GitHub MCP tools)
-   - Use `github_repo` tool to fetch PR details from linked repositories
-   - Extract PR description for Summary of Changes
-   - **Analyze PR file changes** to identify test files:
-     - Java: `*Test.java`, `*IT.java`, `*Tests.java`
-     - TypeScript/JavaScript: `*.spec.ts`, `*.test.js`, `*.test.ts`
-     - Python: `test_*.py`, `*_test.py`
-     - Other test patterns: `__tests__/`, `/tests/`, `/test/`
-   - Look for **gate PRs** (deployment/concourse changes) in addition to application PRs
-   - Document test file locations in Quality Metrics section
-   - Note: Only include if test files are found; use placeholder if not available
+4. **Fetch 3-5 Recent Confluence CAB Release Pages** (CRITICAL STEP)
+   - Use `mcp_my-mcp-server_search` with query "CAB release" or "precab release"
+   - Use `mcp_my-mcp-server_getConfluencePage` to fetch 3-5 most recent pages in markdown format
+   - **Analyze structure carefully**: sections, ordering, formatting, level of detail
+   - **Identify common patterns**: Which sections appear in all/most pages? What's typical length?
+   - **This is your authoritative template** - not any predefined structure
 
-5. **Fetch Online Confluence Templates** (always prioritize online over local)
-   - Use `mcp_my-mcp-server_search` with query "precab release page template"
-   - Use `mcp_my-mcp-server_getConfluencePage` to fetch template content in markdown format
-   - Compare multiple templates to identify current standards
-
-6. **Analyze & Synthesize:**
+5. **Analyze & Synthesize:**
    - Read Jira description + ALL comments
-   - Extract business context (WHY) - keep to 2-3 sentences
-   - Identify PR description (WHAT changed) - keep to 3-5 bullet points
-   - Remove technical implementation details (HOW)
-   - **Extract test coverage from GitHub PR**:
-     - List test files found in PR changes
-     - Note test types (unit, integration, E2E)
-     - Include gate PR links if infrastructure changes exist
+   - **Scan for "Important:" comments** - extract if found (skip all others)
+   - Extract business context
+   - Identify PR description for summary section
+   - **Match template style and length** from step 4
 
-7. **Generate Release Page:**
-   - Background: 2-3 sentences maximum - business context from Jira
-   - Summary of Changes: 3-5 bullet points - from GitHub PR description or Jira
-   - Quality Metrics: High-level summary with test file references from GitHub PR analysis
-     - Example: "Unit tests: `DriverServiceTest.java`, Integration tests: `DriverAPITest.java`"
-     - Include gate PR link if deployment infrastructure changes
-   - Details: From Jira metadata
-   - No copy-paste, all synthesized and concise content
+6. **Generate Release Page:**
+   - **Use structure from fetched templates** (step 4)
+   - **Only include sections present in majority of templates**
+   - **Match detail level** from templates
+   - **Ask user before adding** any section not in templates
+   - Populate with synthesized content from Jira/PRs
+   - Use placeholders for missing operational data
 
 ---
 
